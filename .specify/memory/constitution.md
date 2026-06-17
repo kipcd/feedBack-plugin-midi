@@ -45,7 +45,6 @@ right preset light up, playback will too" — no hidden differences.
 - `setup(app, context)` contract; uses `config_dir` and
   `get_dlc_dir`.
 - Routes under `/api/plugins/midi_amp/...`.
-- PSARC parsing via the shared `psarc.read_psarc_entries`.
 - Plugin loader serves only the files referenced by `plugin.json`.
 
 Where this plugin's principles disagree with the core constitution,

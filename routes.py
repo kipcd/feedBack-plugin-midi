@@ -124,62 +124,7 @@ def setup(app, context):
 
     @app.get("/api/plugins/midi_amp/song-tones/{filename:path}")
     def get_song_tones(filename: str):
-        """Get tone keys from a CDLC for mapping."""
-        from psarc import read_psarc_entries
-        dlc = context["get_dlc_dir"]()
-        if not dlc:
-            return {"error": "DLC folder not configured"}
-
-        dlc_path = dlc.resolve()
-        psarc_path = (dlc_path / filename).resolve()
-        try:
-            psarc_path.relative_to(dlc_path)
-        except ValueError:
-            return {"error": "Invalid path"}
-
-        if not psarc_path.exists():
-            return {"error": "File not found"}
-
-        # Sloppaks don't carry RS-format tone manifests — they're a
-        # stripped-down format with stems + arrangement JSON only. Return
-        # an empty list rather than feeding a non-PSARC into the PSARC
-        # parser (which 500s on the magic-byte check).
-        if psarc_path.name.lower().endswith(".sloppak"):
-            return {"tones": []}
-
-        try:
-            files = read_psarc_entries(str(psarc_path), ["*.json"])
-        except (ValueError, OSError) as exc:
-            import logging
-            logging.getLogger(__name__).warning("Failed to read PSARC %s: %s", psarc_path, exc)
-            return {"tones": [], "error": "Unsupported or invalid archive"}
-        tones = []
-        seen = set()
-
-        for path, data in sorted(files.items()):
-            if not path.endswith(".json"):
-                continue
-            try:
-                j = json.loads(data)
-            except json.JSONDecodeError:
-                import re
-                text = data.decode("utf-8", errors="ignore")
-                text = re.sub(r",\s*([}\]])", r"\1", text)
-                try:
-                    j = json.loads(text)
-                except Exception:
-                    continue
-
-            for k, v in j.get("Entries", {}).items():
-                attrs = v.get("Attributes", {})
-                arr_name = attrs.get("ArrangementName", "")
-                if arr_name in ("Vocals", "ShowLights", "JVocals"):
-                    continue
-                for t in attrs.get("Tones", []):
-                    key = t.get("Key", "")
-                    name = t.get("Name", key)
-                    if key and key not in seen:
-                        seen.add(key)
-                        tones.append({"key": key, "name": name, "arrangement": arr_name})
-
-        return {"tones": tones}
+        """Auto-extraction of tone keys from a song has been removed
+        (it read the encrypted CDLC container). Map tones manually;
+        returns an empty list so the UI degrades gracefully."""
+        return {"tones": []}
