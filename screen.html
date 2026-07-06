@@ -23,7 +23,7 @@
     </div>
 
     <!-- Test area -->
-    <div id="midi-test" class="mt-8 hidden">
+    <div id="midi-test" class="mt-8">
         <h3 class="text-sm font-semibold text-gray-300 mb-3">Test MIDI Output</h3>
         <div class="flex gap-3 items-center flex-wrap">
             <select id="midi-test-type" class="bg-dark-700 border border-gray-700 rounded-lg px-2 py-1 text-xs text-gray-300 outline-none">
@@ -34,8 +34,14 @@
             <input type="number" id="midi-test-ch" min="0" max="15" value="0" class="w-14 bg-dark-700 border border-gray-700 rounded-lg px-2 py-1 text-xs text-gray-300 outline-none">
             <label class="text-xs text-gray-500">CC#</label>
             <input type="number" id="midi-test-cc" min="0" max="127" value="0" class="w-14 bg-dark-700 border border-gray-700 rounded-lg px-2 py-1 text-xs text-gray-300 outline-none">
-            <label class="text-xs text-gray-500">Bank (PC only)</label>
-            <input type="number" id="midi-test-bank" min="0" max="16383" value="0" class="w-16 bg-dark-700 border border-gray-700 rounded-lg px-2 py-1 text-xs text-gray-300 outline-none">
+            <div id="msb-field" class="hidden flex items-center gap-3">
+                <label class="text-xs text-gray-500">MSB</label>
+                <input type="number" id="midi-test-msb" min="0" max="127" value="0" class="w-16 bg-dark-700 border border-gray-700 rounded-lg px-2 py-1 text-xs text-gray-300 outline-none">
+            </div>
+            <div id="lsb-field" class="hidden flex items-center gap-3">
+                <label class="text-xs text-gray-500">LSB</label>
+                <input type="number" id="midi-test-lsb" min="0" max="127" value="0" class="w-16 bg-dark-700 border border-gray-700 rounded-lg px-2 py-1 text-xs text-gray-300 outline-none">
+            </div>
             <label class="text-xs text-gray-500">Value</label>
             <input type="number" id="midi-test-val" min="0" max="127" value="1" class="w-14 bg-dark-700 border border-gray-700 rounded-lg px-2 py-1 text-xs text-gray-300 outline-none">
             <label class="text-xs text-gray-500">CC2#</label>

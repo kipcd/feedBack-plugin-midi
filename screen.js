@@ -34,6 +34,30 @@ async function midiInit() {
     }
 }
 
+function setupTestBankToggle() {
+    const typeSelect = document.getElementById('midi-test-type');
+    const msbField = document.getElementById('msb-field');
+    const lsbField = document.getElementById('lsb-field');
+    
+    if (!typeSelect || !msbField) return;
+    if (!typeSelect || !lsbField) return;
+
+    function toggleBank() {
+        if (typeSelect.value === 'pc') {
+            msbField.classList.remove('hidden');
+            lsbField.classList.remove('hidden');
+        } else {
+            msbField.classList.add('hidden');
+            lsbField.classList.add('hidden');
+        }
+    }
+
+    // Clear any older listeners by replacing the change event handler assignment
+    typeSelect.onchange = toggleBank;
+    // Sync initial state on device load/creation
+    toggleBank();
+}
+
 function _updateMidiDevices() {
     const status = document.getElementById('midi-status');
     if (!_midiAccess) return;
@@ -67,6 +91,7 @@ function _updateMidiDevices() {
     html += `</select></div>`;
     status.innerHTML = html;
     document.getElementById('midi-test').classList.remove('hidden');
+    setupTestBankToggle();
 }
 
 function midiSelectDevice(id) {
@@ -77,28 +102,32 @@ function midiSelectDevice(id) {
     localStorage.setItem('midi_output_id', id);
 }
 
+function toggleRowBankFields(row) {
+    const typeSelect = row.querySelector('[data-field="msg_type"]');
+    const msbCol = row.querySelector('[data-field="bank_msb"]')?.closest('div');
+    const lsbCol = row.querySelector('[data-field="bank_lsb"]')?.closest('div');
+    if (!typeSelect || !msbCol || !lsbCol) return;
+
+    const isPC = typeSelect.value === 'pc';
+    msbCol.classList.toggle('hidden', !isPC);
+    lsbCol.classList.toggle('hidden', !isPC);
+}
+
 // Range validators. Bit-masking out-of-range values would silently
 // wrap them onto a different MIDI byte — e.g. bank 16384 → 0/0,
 // CC#128 → CC#0 (Bank Select MSB) — and clobber the user's bank.
 // Better to drop the message than to send a wrong one.
 function _isCcNum(n)       { return Number.isInteger(n) && n >= 0 && n <= 127; }
 function _is7Bit(n)        { return Number.isInteger(n) && n >= 0 && n <= 127; }
-function _is14BitBank(n)   { return Number.isInteger(n) && n >= 0 && n <= 16383; }
 
-function midiSend(channel, msgType, ccNumber, value, opts) {
+function midiSend(channel, msgType, ccNumber, value, msbNumber, lsbNumber, cc2Number, cc2Value) {
     if (!_midiOutput) return;
     const ch = channel & 0x0F;
-    const bankNumberRaw = (opts && Number.isFinite(opts.bankNumber)) ? opts.bankNumber : 0;
-    const cc2NumberRaw  = (opts && opts.cc2Number != null && Number.isFinite(opts.cc2Number))
-        ? opts.cc2Number : null;
-    const cc2ValueRaw   = (opts && Number.isFinite(opts.cc2Value)) ? opts.cc2Value : 0;
-    // Apply the "drop rather than wrap" policy to the primary
-    // message too — masking ccNumber/value with & 0x7F silently
-    // turns an out-of-range 128 into 0, which for CC#0 is
-    // Bank Select MSB and would clobber the bank just like the
-    // CC2 / Bank Select cases below. Skipping the primary must
-    // NOT short-circuit the CC2 dispatch: the function's contract
-    // is that CC2 fires independently of the primary message.
+    const msbNumberRaw = (msbNumber) ? msbNumber : 0;
+    const lsbNumberRaw = (lsbNumber) ? lsbNumber : 0;
+    const cc2NumberRaw  = (cc2Number != null && Number.isFinite(cc2Number))
+        ? cc2Number : null;
+    const cc2ValueRaw   = (Number.isFinite(cc2Value)) ? cc2Value : 0;
     if (msgType === 'cc') {
         if (_isCcNum(ccNumber) && _is7Bit(value)) {
             _midiOutput.send([0xB0 | ch, ccNumber, value]);
@@ -107,23 +136,28 @@ function midiSend(channel, msgType, ccNumber, value, opts) {
             console.warn(`[MIDI] CC ${ccNumber}=${value} out of range 0-127; skipping`);
         }
     } else {
-        if (_is7Bit(value)) {
-            // Program Change with optional 14-bit Bank Select
-            // (CC#0 = Bank MSB, CC#32 = Bank LSB). Only sent when
-            // bankNumber > 0 so users who don't bank-switch don't
-            // get a phantom Bank 0/0 on every preset change.
-            if (bankNumberRaw > 0) {
-                if (_is14BitBank(bankNumberRaw)) {
-                    const msb = (bankNumberRaw >> 7) & 0x7F;
-                    const lsb = bankNumberRaw & 0x7F;
-                    _midiOutput.send([0xB0 | ch, 0x00, msb]);
-                    _midiOutput.send([0xB0 | ch, 0x20, lsb]);
-                } else {
-                    console.warn(`[MIDI] Bank ${bankNumberRaw} out of range 0-16383; skipping Bank Select`);
-                }
+        // Only emit Bank Select (CC#0 MSB / CC#32 LSB) when the user
+        // actually set a bank. Sending MSB:0/LSB:0 on every Program
+        // Change forces bank 0 on multi-bank synths/modelers and picks
+        // the wrong patch — the "phantom Bank 0/0" problem. Skip both
+        // sends when msb and lsb are both 0; send when either is set.
+        if (msbNumberRaw !== 0 || lsbNumberRaw !== 0) {
+            if (_is7Bit(msbNumberRaw)) {
+                _midiOutput.send([0xB0 | ch, 0x00, msbNumberRaw]);  // Bank Select MSB
+                console.log(`[MIDI] Ch:${ch} MSB:${msbNumberRaw}`);
+            } else {
+                console.warn(`[MIDI] MSB ${msbNumberRaw} out of range 0-127; skipping MSB`);
             }
+            if (_is7Bit(lsbNumberRaw)) {
+                _midiOutput.send([0xB0 | ch, 0x20, lsbNumberRaw]);
+                console.log(`[MIDI] Ch:${ch} LSB:${lsbNumberRaw}`);
+            } else {
+                console.warn(`[MIDI] LSB ${lsbNumberRaw} out of range 0-127; skipping`);
+            }
+        }
+        if (_is7Bit(value)) {
             _midiOutput.send([0xC0 | ch, value]);
-            console.log(`[MIDI] Ch${ch} PC ${value}${bankNumberRaw > 0 ? ` (Bank ${bankNumberRaw})` : ''}`);
+            console.log(`[MIDI] Ch${ch} ${value}`);
         } else {
             console.warn(`[MIDI] PC ${value} out of range 0-127; skipping`);
         }
@@ -145,7 +179,8 @@ function midiTestSend() {
     const ch = parseInt(document.getElementById('midi-test-ch').value) || 0;
     const type = document.getElementById('midi-test-type').value;
     const cc = parseInt(document.getElementById('midi-test-cc').value) || 0;
-    const bank = parseInt(document.getElementById('midi-test-bank').value) || 0;
+    const msb = parseInt(document.getElementById('midi-test-msb').value) || 0;
+    const lsb = parseInt(document.getElementById('midi-test-lsb').value) || 0;
     const val = parseInt(document.getElementById('midi-test-val').value) || 0;
     // Empty cc2 input → "no second CC". parseInt('') is NaN, which
     // midiSend treats as null. Don't fall through to ||0 because 0
@@ -153,7 +188,7 @@ function midiTestSend() {
     const cc2Raw = document.getElementById('midi-test-cc2').value;
     const cc2 = cc2Raw === '' ? null : parseInt(cc2Raw, 10);
     const cc2val = parseInt(document.getElementById('midi-test-cc2val').value) || 0;
-    midiSend(ch, type, cc, val, { bankNumber: bank, cc2Number: cc2, cc2Value: cc2val });
+    midiSend(ch, type, cc, val, msb, lsb, cc2, cc2val );
 }
 
 // ── Mapping Editor ──────────────────────────────────────────────────────
@@ -247,9 +282,15 @@ async function midiEditSong(encodedFilename, displayName) {
                         class="midi-field w-full bg-dark-600 border border-gray-700 rounded-lg px-2 py-1.5 text-xs text-gray-300 outline-none">
                 </div>
                 <div>
-                    <label class="text-[10px] text-gray-500 block mb-1">Bank (PC only)</label>
-                    <input type="number" min="0" max="16383" value="${m.bank_number || 0}"
-                        data-tone="${t.key}" data-field="bank_number"
+                    <label class="text-[10px] text-gray-500 block mb-1">MSB</label>
+                    <input type="number" min="0" max="127" value="${m.bank_msb || 0}"
+                        data-tone="${t.key}" data-field="bank_msb"
+                        class="midi-field w-full bg-dark-600 border border-gray-700 rounded-lg px-2 py-1.5 text-xs text-gray-300 outline-none">
+                </div>
+                <div>
+                    <label class="text-[10px] text-gray-500 block mb-1">LSB</label>
+                    <input type="number" min="0" max="127" value="${m.bank_lsb || 0}"
+                        data-tone="${t.key}" data-field="bank_lsb"
                         class="midi-field w-full bg-dark-600 border border-gray-700 rounded-lg px-2 py-1.5 text-xs text-gray-300 outline-none">
                 </div>
                 <div>
@@ -268,11 +309,18 @@ async function midiEditSong(encodedFilename, displayName) {
         </div>`;
     }).join('');
 
-    // Auto-save on change
+    // Sync initial visibility state for all generated rows
+    container.querySelectorAll('.rounded-xl').forEach(row => {
+        toggleRowBankFields(row);
+    });
+    // Auto-save and visibility sync on change
     container.querySelectorAll('.midi-field').forEach(input => {
         input.addEventListener('change', () => {
             const toneKey = input.dataset.tone;
             const row = input.closest('.rounded-xl');
+            if (input.dataset.field === 'msg_type') {
+                toggleRowBankFields(row);
+            }
             const fields = row.querySelectorAll('.midi-field');
             const mapping = { tone_key: toneKey, tone_name: toneKey };
             fields.forEach(f => {
@@ -302,18 +350,19 @@ function midiTestMapping(toneKey) {
     const container = document.getElementById('midi-mappings');
     const fields = container.querySelectorAll(`[data-tone="${toneKey}"]`);
     let ch = 0, msgType = 'cc', ccNum = 0, val = 0;
-    let bankNum = 0, cc2Num = null, cc2Val = 0;
+    let msbNum = 0, lsbNum = 0, cc2Num = null, cc2Val = 0;
     fields.forEach(f => {
         const field = f.dataset.field;
         if (field === 'channel') ch = parseInt(f.value) || 0;
         else if (field === 'msg_type') msgType = f.value;
         else if (field === 'cc_number') ccNum = parseInt(f.value) || 0;
         else if (field === 'value') val = parseInt(f.value) || 0;
-        else if (field === 'bank_number') bankNum = parseInt(f.value) || 0;
+        else if (field === 'bank_msb') msbNum = parseInt(f.value) || 0;
+        else if (field === 'bank_lsb') lsbNum = parseInt(f.value) || 0;
         else if (field === 'cc2_number') cc2Num = f.value === '' ? null : (parseInt(f.value, 10) || 0);
         else if (field === 'cc2_value') cc2Val = parseInt(f.value) || 0;
     });
-    midiSend(ch, msgType, ccNum, val, { bankNumber: bankNum, cc2Number: cc2Num, cc2Value: cc2Val });
+    midiSend(ch, msgType, ccNum, val, msbNum, lsbNum, cc2Num, cc2Val);
 }
 
 // ── Player Integration: auto-switch on tone change ──────────────────────
@@ -358,11 +407,9 @@ function _midiCheckToneChange() {
         // Look up mapping for this tone
         const mapping = _midiMappings[activeTone];
         if (mapping) {
-            midiSend(mapping.channel, mapping.msg_type, mapping.cc_number, mapping.value, {
-                bankNumber: mapping.bank_number || 0,
-                cc2Number: mapping.cc2_number,  // null = skip second CC
-                cc2Value: mapping.cc2_value || 0,
-            });
+            // Normalize empty strings, undefined, or null to null so midiSend safely skips it
+            const cc2Num = (mapping.cc2_number === '' || mapping.cc2_number == null) ? null : mapping.cc2_number;
+            midiSend(mapping.channel, mapping.msg_type, mapping.cc_number, mapping.value, mapping.bank_msb, mapping.bank_lsb, cc2Num, mapping.cc2_value || 0);
             console.log(`[MIDI] Tone switch: ${activeTone} -> Ch${mapping.channel} ${mapping.msg_type}#${mapping.cc_number}=${mapping.value}`);
         }
     }
@@ -427,4 +474,3 @@ function _midiInjectButton() {
     if (closeBtn) controls.insertBefore(btn, closeBtn);
     else controls.appendChild(btn);
 }
-

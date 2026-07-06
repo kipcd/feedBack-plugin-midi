@@ -1,0 +1,8 @@
+{
+  "name": "feedback-plugin-midi",
+  "private": true,
+  "description": "MIDI amp/tone switching plugin for feedBack",
+  "scripts": {
+    "test": "node --test test/*.test.js"
+  }
+}
